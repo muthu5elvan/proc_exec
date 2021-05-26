@@ -1,0 +1,353 @@
+{
+    "variables":{
+        "^domain^" : "^$^/input/domain.txt",
+
+        "^module_reverse_whois^": "^$^/module/python_module/reverse_whois/reverse_whois.py",
+        "^output_reverse_whois^": "^$^/output/reverse_whois",
+        "^output_reverse_whois_final^": "^$^/output/reverse_whois_final",
+
+
+        "^utlity_alive_check^":"^$^/utlity/alive_check.py",
+        "^output_alive_check^":"^$^/output/alive_check",
+        "^output_alive_check_final^":"^$^/output/alive_check_final",
+        
+        "^nuclei^":"^$^/module/nuclei/",
+
+        "^module_subdomain^":"^$^/module/python_module/sublister/sublist3r.py",
+        "^output_subdomain^":"^$^/output/subdomain_output",
+        "^output_subdomain_final^":"^$^/output/subdomain_output_final",
+
+        "^utlity_get_ip^":"^$^/utlity/get_ips.py",
+        "^output_get_ip^":"^$^/output/get_output",
+        "^output_get_ip_final^":"^$^/output/get_output_final",
+
+        "^output_record_check^":"^$^/output/output_record_check",
+
+        "^output_sslscan^":"^$^/output/sslscan_output"
+        
+    },
+    "command_steps": [
+
+        {
+            "process_name" : "nuclei",
+            "command": "^nuclei^nuclei -ut"
+        },
+        {
+            "process_name":"reverse_whois",
+            "command":"echo \"^domain*^\" |python3 ^module_reverse_whois^| jq -r '.[]|.[\"Domain Name\"]' | tee ^output_reverse_whois^_^domain*^ "
+        },
+        {
+            "process_name":"alive_check",
+            "command":["cat ^output_reverse_whois^_^domain*^ | python3 ^utlity_alive_check^ 2> /dev/null | tee -a ^output_alive_check^"]
+        },
+        {
+            "process_name":"alive_check",
+            "command":"sort -u ^output_alive_check^ ^domain^ |sed -E 's/http:\\/\\/|https:\\/\\///'|sort -u |tee ^output_reverse_whois_final^",
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"reverse_whois",
+                    "variable":"Domain"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            }
+        },
+        {
+            "process_name":"Subdomain_Sublister",
+            "command":"python3 ^module_subdomain^ -n -d \"^output_reverse_whois_final*^\"|sed 's/\\[~\\] Finished now the Google Enumeration ...//' | tee -a  ^output_subdomain^",
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_reverse_whois_final*^",
+                    "variable":"Subdomain"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            }
+        },
+        {
+            "process_name":"sorted_final_subdomain",
+            "command":[
+                "sort ^output_subdomain^ ^output_reverse_whois_final^ -u > ^output_subdomain_final^"
+            ]
+        },
+        {
+            "process_name":"sslscan",
+            "command":[
+                "echo ^output_reverse_whois_final*^ | python3 ^utlity_get_ip^ |awk '{print $2}' |xargs sslscan | tee -a ^output_sslscan^ |grep -Eo \".*33m.*|.*34m.*|.*31m.*\" --color=never"
+            ],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_reverse_whois_final*^",
+                    "variable":"sslscan"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":"\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])"
+                }
+            },
+            "thread":15
+        },
+        {
+            "process_name":"record_check",
+            "command":[
+                "checkdmarc ^output_subdomain_final*^ |jq -r '\"NS Warnings : \n\",\"\t\"+.ns.warnings[],\"MX Warnings : \n\", \"\t\"+.mx.warnings[],\"SPF Warnings : \n\", \"\t\"+.spf.warnings[], \"DMARC VALID : \"+(.dmarc.valid|tostring), \"DMARC Warnings : \n\",\"\t\"+.dmarc.warnings[]' 2> /dev/null | tee -a ^output_record_check^"
+            ],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_subdomain_final*^",
+                    "variable":"record_check"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":"\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])"
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name":"get_ip",
+            "command":["echo \"^output_subdomain_final*^\" | python3 ^utlity_get_ip^ |awk '{print $2}'| tee -a ^output_get_ip^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_subdomain_final*^",
+                    "variable":"ip_address"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+
+        },
+        {
+            "process_name":"sorted_final_subdomain",
+            "command":[
+                "sort ^output_get_ip^  -u > ^output_get_ip_final^"
+            ]
+        },
+        {
+            "process_name":"store_alive",
+            "command":["echo \"^output_subdomain_final*^\" | python3 ^utlity_alive_check^ 2> /dev/null |tee -a ^output_alive_check_final^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_subdomain_final*^",
+                    "variable":"Alive"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name" : "nuclei",
+            "command": ["^nuclei^nuclei -config ^nuclei^config/vulnerabilities.config -nc -silent -u ^output_alive_check_final*^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_alive_check_final*^",
+                    "variable":"nuclei_vulnerabilities"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name" : "nuclei",
+            "command": ["^nuclei^nuclei -config ^nuclei^config/technologies.config -nc -silent -u ^output_alive_check_final*^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_alive_check_final*^",
+                    "variable":"nuclei_technologies"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name" : "nuclei",
+            "command": ["^nuclei^nuclei -config ^nuclei^config/exposures.config -nc -silent -u ^output_alive_check_final*^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_alive_check_final*^",
+                    "variable":"nuclei_exposures"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name" : "nuclei",
+            "command": ["^nuclei^nuclei -config ^nuclei^config/default-logins.config -nc -silent -u ^output_alive_check_final*^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_alive_check_final*^",
+                    "variable":"nuclei_default-logins"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name" : "nuclei",
+            "command": ["^nuclei^nuclei -config ^nuclei^config/exposed-panels.config -nc -silent -u ^output_alive_check_final*^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_alive_check_final*^",
+                    "variable":"nuclei_exposed-panels"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name" : "nuclei",
+            "command": ["^nuclei^nuclei -config ^nuclei^config/cves.config -nc -silent -u ^output_alive_check_final*^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_alive_check_final*^",
+                    "variable":"nuclei_cves"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name" : "nuclei",
+            "command": ["^nuclei^nuclei -config ^nuclei^config/dns.config -nc -silent -u ^output_alive_check_final*^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_alive_check_final*^",
+                    "variable":"nuclei_dns"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        },
+        {
+            "process_name" : "nuclei",
+            "command": ["^nuclei^nuclei -config ^nuclei^config/network.config -nc -silent -u ^output_alive_check_final*^"],
+            "output":{
+                "store":{
+                    "enable":true,
+                    "key":"^output_alive_check_final*^",
+                    "variable":"nuclei_network"
+                },
+                "extract":{
+                    "enable":true,
+                    "regex":""
+                },
+
+                "santized":{
+                    "enable":true,
+                    "regex":""
+                }
+            },
+            "thread":10
+        }
+    ]
+}
